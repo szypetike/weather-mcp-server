@@ -1,4 +1,5 @@
 # Weather MCP Server
+[![smithery badge](https://smithery.ai/badge/@szypetike/weather-mcp-server)](https://smithery.ai/server/@szypetike/weather-mcp-server)
 
 A Model Context Protocol (MCP) server that provides weather information for cities around the world.
 
@@ -15,6 +16,15 @@ A Model Context Protocol (MCP) server that provides weather information for citi
 
 ## Installation
 
+### Installing via Smithery
+
+To install weather-mcp-server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@szypetike/weather-mcp-server):
+
+```bash
+npx -y @smithery/cli install @szypetike/weather-mcp-server --client claude
+```
+
+### Manual Installation
 1. Clone this repository
 2. Install dependencies:
    ```
