@@ -3,10 +3,36 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError, } from '@modelcontextprotocol/sdk/types.js';
 import axios from 'axios';
+import pino from 'pino';
+// Create directory for logs if it doesn't exist
+import fs from 'fs';
+import path from 'path';
+const logsDir = path.join(process.cwd(), 'logs');
+if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true });
+}
+// Create a Pino logger for analytics
+const logFilePath = path.join(logsDir, 'server-analytics.log');
+const logFileStream = fs.createWriteStream(logFilePath, { flags: 'a' });
+const logger = pino.default({
+    level: process.env.LOG_LEVEL || 'info',
+    base: { pid: process.pid, hostname: process.env.HOSTNAME || 'unknown' },
+}, logFileStream);
 // OpenWeather API key - must be provided via environment variable
 const API_KEY = process.env.OPENWEATHER_API_KEY;
+// Check if mock API mode is enabled
+// This can be set via environment variable MOCK_API=true|false
+// Default to true if API key is not provided
+const MOCK_API = process.env.MOCK_API === 'true' || process.env.MOCK_API === '1' || !API_KEY;
 // Check if API key is provided
-const isApiKeyAvailable = !!API_KEY;
+const isApiKeyAvailable = !!API_KEY && !MOCK_API;
+// Log server startup
+logger.info({
+    event: 'server_start',
+    apiKeyAvailable: isApiKeyAvailable,
+    mockApiEnabled: MOCK_API,
+    timestamp: new Date().toISOString(),
+});
 // Mock weather data for fallback
 const mockWeatherData = {
     'london': {
@@ -126,8 +152,20 @@ class WeatherServer {
         });
         this.setupToolHandlers();
         // Error handling
-        this.server.onerror = (error) => console.error('[MCP Error]', error);
+        this.server.onerror = (error) => {
+            logger.error({
+                event: 'server_error',
+                error: String(error),
+                timestamp: new Date().toISOString(),
+            });
+            console.error('[MCP Error]', error);
+        };
         process.on('SIGINT', async () => {
+            logger.info({
+                event: 'server_shutdown',
+                reason: 'SIGINT',
+                timestamp: new Date().toISOString(),
+            });
             await this.server.close();
             process.exit(0);
         });
@@ -171,7 +209,7 @@ class WeatherServer {
                 sunrise: cityData.sunrise,
                 sunset: cityData.sunset,
             },
-            source: "Mock Data (No API key provided)"
+            source: MOCK_API ? "Mock Data (Mock API enabled)" : "Mock Data (No API key provided)"
         };
         return {
             content: [
@@ -206,12 +244,34 @@ class WeatherServer {
         this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
             if (request.params.name === 'get_current_weather') {
                 const args = request.params.arguments;
+                const requestId = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
+                // Log the incoming request
+                logger.info({
+                    event: 'weather_request',
+                    requestId,
+                    city: args.city,
+                    timestamp: new Date().toISOString(),
+                });
                 if (typeof args.city !== 'string' || args.city.trim() === '') {
+                    logger.warn({
+                        event: 'weather_request_invalid',
+                        requestId,
+                        error: 'Invalid city parameter',
+                        timestamp: new Date().toISOString(),
+                    });
                     throw new McpError(ErrorCode.InvalidParams, 'City parameter must be a non-empty string');
                 }
-                // If no API key is provided, use mock data directly
-                if (!isApiKeyAvailable) {
-                    console.log('No API key provided, using mock data');
+                // If mock API is enabled or no API key is provided, use mock data
+                if (MOCK_API || !API_KEY) {
+                    logger.info({
+                        event: 'weather_request_mock',
+                        requestId,
+                        city: args.city,
+                        reason: MOCK_API ? 'Mock API enabled' : 'No API key provided',
+                        mockApiEnabled: MOCK_API,
+                        timestamp: new Date().toISOString(),
+                    });
+                    console.log('Using mock data', MOCK_API ? '(Mock API enabled)' : '(No API key provided)');
                     return this.getMockWeatherResponse(args.city);
                 }
                 try {
@@ -257,6 +317,16 @@ class WeatherServer {
                         },
                         source: "OpenWeather API"
                     };
+                    // Log successful API request
+                    logger.info({
+                        event: 'weather_request_success',
+                        requestId,
+                        city: args.city,
+                        country: data.sys.country,
+                        temperature: Math.round(data.main.temp),
+                        weather: weather.main,
+                        timestamp: new Date().toISOString(),
+                    });
                     return {
                         content: [
                             {
@@ -268,6 +338,17 @@ class WeatherServer {
                 }
                 catch (error) {
                     // If API request fails, use mock data as fallback
+                    const errorMessage = axios.isAxiosError(error)
+                        ? `${error.response?.status || 'unknown'}: ${error.message}`
+                        : String(error);
+                    // Log API error
+                    logger.error({
+                        event: 'weather_request_error',
+                        requestId,
+                        city: args.city,
+                        error: errorMessage,
+                        timestamp: new Date().toISOString(),
+                    });
                     console.error('Error fetching weather data from API, using mock data instead:', error);
                     // Use the same mock data response method but with a different source message
                     const response = this.getMockWeatherResponse(args.city);
@@ -275,6 +356,14 @@ class WeatherServer {
                     const weatherReportText = response.content[0].text;
                     const weatherReport = JSON.parse(weatherReportText);
                     weatherReport.source = "Mock Data (API request failed)";
+                    // Log fallback to mock data
+                    logger.info({
+                        event: 'weather_request_mock',
+                        requestId,
+                        city: args.city,
+                        reason: 'API request failed',
+                        timestamp: new Date().toISOString(),
+                    });
                     // Return the modified response
                     return {
                         content: [
@@ -286,12 +375,24 @@ class WeatherServer {
                     };
                 }
             }
+            // Log unknown tool request
+            logger.warn({
+                event: 'unknown_tool_request',
+                tool: request.params.name,
+                timestamp: new Date().toISOString(),
+            });
             throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${request.params.name}`);
         });
     }
     async run() {
         const transport = new StdioServerTransport();
         await this.server.connect(transport);
+        // Log server connection
+        logger.info({
+            event: 'server_connected',
+            transport: 'stdio',
+            timestamp: new Date().toISOString(),
+        });
         console.error('Weather MCP server running on stdio');
     }
 }
