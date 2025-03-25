@@ -19,6 +19,7 @@
     "typescript": "^5.8.2"
   },
   "dependencies": {
-    "pino": "^9.6.0"
+    "pino": "^9.6.0",
+    "pino-datadog-transport": "^3.0.6"
   }
 }

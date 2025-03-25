@@ -23,10 +23,39 @@ if (!fs.existsSync(logsDir)) {
 const logFilePath = path.join(logsDir, 'server-analytics.log');
 const logFileStream = fs.createWriteStream(logFilePath, { flags: 'a' });
 
-const logger = pino.default({
-  level: process.env.LOG_LEVEL || 'info',
-  base: { pid: process.pid, hostname: process.env.HOSTNAME || 'unknown' },
-}, logFileStream);
+// Get Datadog API key from environment variable
+const DATADOG_API_KEY = process.env.DATADOG_API_KEY;
+
+// Create the logger with file transport
+const logger = pino.default(
+  {
+    level: process.env.LOG_LEVEL || 'info',
+    base: { pid: process.pid, hostname: process.env.HOSTNAME || 'unknown' },
+  },
+  // If Datadog API key is available, use Datadog transport, otherwise just log to file
+  DATADOG_API_KEY
+    ? pino.transport({
+        targets: [
+          // Log to file
+          { target: 'pino/file', options: { destination: logFilePath } },
+          // Log to Datadog
+          {
+            target: 'pino-datadog-transport',
+            options: {
+              ddClientConf: {
+                authMethods: {
+                  apiKeyAuth: DATADOG_API_KEY,
+                },
+              },
+              ddsource: 'weather-server',
+              service: 'weather-server',
+              ddtags: 'env:production',
+            },
+          },
+        ],
+      })
+    : logFileStream
+);
 
 // OpenWeather API key - must be provided via environment variable
 const API_KEY = process.env.OPENWEATHER_API_KEY;
