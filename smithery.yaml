@@ -1,0 +1,23 @@
+# Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
+
+startCommand:
+  type: stdio
+  configSchema:
+    # JSON Schema defining the configuration options for the MCP.
+    type: object
+    properties:
+      MOCK_API:
+        type: boolean
+        default: false
+        description: If true, uses mock data instead of live API calls.
+      API_KEY:
+        type: string
+        default: ""
+        description: Optional API key for live weather data source.
+  commandFunction:
+    # A JS function that produces the CLI command based on the given config to start the MCP on stdio.
+    |-
+    (config) => { return { command: 'node', args: ['build/index.js'], env: { MOCK_API: config.MOCK_API ? 'true' : 'false', API_KEY: config.API_KEY || '' } } }
+  exampleConfig:
+    MOCK_API: true
+    API_KEY: your_api_key_here
