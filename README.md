@@ -14,6 +14,7 @@ A Model Context Protocol (MCP) server that provides weather information for citi
 
 - Node.js (v14 or higher)
 - npm or yarn
+- OpenWeather API key (optional - will use mock data if not provided)
 
 ## Installation
 
@@ -45,12 +46,30 @@ Add the following configuration to your MCP settings:
     "weather-server": {
       "command": "node",
       "args": ["path/to/weather-server/build/index.js"],
+      "env": {
+        "OPENWEATHER_API_KEY": "your-api-key-here" // Optional - will use mock data if not provided
+      },
       "disabled": false,
       "autoApprove": []
     }
   }
 }
 ```
+
+### API Key and Mock Data
+
+This server can operate in two modes:
+
+1. **With API Key**: When an OpenWeather API key is provided via the `OPENWEATHER_API_KEY` environment variable, the server will fetch real-time weather data from the OpenWeather API.
+
+2. **Without API Key**: If no API key is provided, the server will automatically use mock data for a set of predefined cities (London, New York, Tokyo, Paris, Sydney). For other cities, it will use default mock data.
+
+To get an OpenWeather API key:
+1. Sign up at [OpenWeather](https://openweathermap.org/)
+2. Navigate to your account's "API keys" section
+3. Generate a new API key or use an existing one
+
+The mock data mode is useful for development, testing, or when you don't need real-time weather data.
 
 ## Available Tools
 
@@ -88,9 +107,15 @@ Get current weather information for a specified city.
     "cloudiness": "90%",
     "sunrise": "6:45 AM",
     "sunset": "7:30 PM"
-  }
+  },
+  "source": "OpenWeather API" // or "Mock Data (No API key provided)" or "Mock Data (API request failed)"
 }
 ```
+
+The `source` field in the response indicates where the data came from:
+- `"OpenWeather API"`: Real-time data from the OpenWeather API
+- `"Mock Data (No API key provided)"`: Mock data used because no API key was provided
+- `"Mock Data (API request failed)"`: Mock data used because the API request failed
 
 ## License
 

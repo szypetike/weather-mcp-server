@@ -9,8 +9,11 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import axios from 'axios';
 
-// OpenWeather API key
-const API_KEY = process.env.OPENWEATHER_API_KEY || 'edd8ac3d84ce70fb78a73f1d19a03b84';
+// OpenWeather API key - must be provided via environment variable
+const API_KEY = process.env.OPENWEATHER_API_KEY;
+
+// Check if API key is provided
+const isApiKeyAvailable = !!API_KEY;
 
 // Mock weather data for fallback
 const mockWeatherData: Record<string, any> = {
@@ -177,6 +180,61 @@ class WeatherServer {
     });
   }
 
+  private getMockWeatherResponse(city: string) {
+    // Get city name in lowercase for case-insensitive lookup
+    const cityLower = city.toLowerCase();
+    
+    // Get weather data for the city or use default if not found
+    const cityData = mockWeatherData[cityLower] || {
+      ...defaultWeatherData,
+      name: city
+    };
+    
+    // Get current date and time
+    const now = new Date();
+    const formattedDate = now.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    const formattedTime = now.toLocaleTimeString('en-US');
+    
+    const weatherReport = {
+      location: `${cityData.name}, ${cityData.country}`,
+      date: formattedDate,
+      time: formattedTime,
+      temperature: {
+        current: `${Math.round(cityData.temp)}°C`,
+        feelsLike: `${Math.round(cityData.feels_like)}°C`,
+      },
+      weather: {
+        main: cityData.weather,
+        description: cityData.description,
+        icon: `https://openweathermap.org/img/wn/${cityData.icon}@2x.png`,
+      },
+      details: {
+        humidity: `${cityData.humidity}%`,
+        pressure: `${cityData.pressure} hPa`,
+        windSpeed: `${cityData.wind_speed} m/s`,
+        windDirection: `${cityData.wind_deg}°`,
+        cloudiness: `${cityData.cloudiness}%`,
+        sunrise: cityData.sunrise,
+        sunset: cityData.sunset,
+      },
+      source: "Mock Data (No API key provided)"
+    };
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(weatherReport, null, 2),
+        },
+      ],
+    };
+  }
+
   private setupToolHandlers() {
     // List available tools
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -208,6 +266,12 @@ class WeatherServer {
             ErrorCode.InvalidParams,
             'City parameter must be a non-empty string'
           );
+        }
+
+        // If no API key is provided, use mock data directly
+        if (!isApiKeyAvailable) {
+          console.log('No API key provided, using mock data');
+          return this.getMockWeatherResponse(args.city);
         }
 
         try {
@@ -270,50 +334,15 @@ class WeatherServer {
           // If API request fails, use mock data as fallback
           console.error('Error fetching weather data from API, using mock data instead:', error);
           
-          // Get city name in lowercase for case-insensitive lookup
-          const cityLower = args.city.toLowerCase();
+          // Use the same mock data response method but with a different source message
+          const response = this.getMockWeatherResponse(args.city);
           
-          // Get weather data for the city or use default if not found
-          const cityData = mockWeatherData[cityLower] || {
-            ...defaultWeatherData,
-            name: args.city
-          };
+          // Parse the weather report to modify the source message
+          const weatherReportText = response.content[0].text;
+          const weatherReport = JSON.parse(weatherReportText);
+          weatherReport.source = "Mock Data (API request failed)";
           
-          // Get current date and time
-          const now = new Date();
-          const formattedDate = now.toLocaleDateString('en-US', {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-          });
-          const formattedTime = now.toLocaleTimeString('en-US');
-          
-          const weatherReport = {
-            location: `${cityData.name}, ${cityData.country}`,
-            date: formattedDate,
-            time: formattedTime,
-            temperature: {
-              current: `${Math.round(cityData.temp)}°C`,
-              feelsLike: `${Math.round(cityData.feels_like)}°C`,
-            },
-            weather: {
-              main: cityData.weather,
-              description: cityData.description,
-              icon: `https://openweathermap.org/img/wn/${cityData.icon}@2x.png`,
-            },
-            details: {
-              humidity: `${cityData.humidity}%`,
-              pressure: `${cityData.pressure} hPa`,
-              windSpeed: `${cityData.wind_speed} m/s`,
-              windDirection: `${cityData.wind_deg}°`,
-              cloudiness: `${cityData.cloudiness}%`,
-              sunrise: cityData.sunrise,
-              sunset: cityData.sunset,
-            },
-            source: "Mock Data (API request failed)"
-          };
-
+          // Return the modified response
           return {
             content: [
               {
