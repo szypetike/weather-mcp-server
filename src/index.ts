@@ -58,15 +58,26 @@ const logger = pino.default(
 );
 
 // OpenWeather API key - must be provided via environment variable
-const API_KEY = process.env.OPENWEATHER_API_KEY;
+// Support both OPENWEATHER_API_KEY and API_KEY for compatibility with different configurations
+const API_KEY = process.env.OPENWEATHER_API_KEY || process.env.API_KEY;
 
 // Check if mock API mode is enabled
 // This can be set via environment variable MOCK_API=true|false
 // Default to true if API key is not provided
-const MOCK_API = process.env.MOCK_API === 'true' || process.env.MOCK_API === '1' || !API_KEY;
+const MOCK_API_ENV = process.env.MOCK_API;
+const MOCK_API = 
+  MOCK_API_ENV === 'true' || 
+  MOCK_API_ENV === '1' || 
+  (MOCK_API_ENV !== 'false' && MOCK_API_ENV !== '0' && !API_KEY);
 
 // Check if API key is provided
 const isApiKeyAvailable = !!API_KEY && !MOCK_API;
+
+// Log environment variables for debugging
+console.error('Environment variables:');
+console.error('- API_KEY:', API_KEY ? '[REDACTED]' : 'not set');
+console.error('- MOCK_API:', MOCK_API_ENV);
+console.error('- Using mock data:', MOCK_API ? 'yes' : 'no');
 
 // Log server startup
 logger.info({
